@@ -9,14 +9,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.isotonic import IsotonicRegression
 
 # ─────────────────────────────────────────────
-# HYPERPARAMETERS
+# CONFIG — edit these
 # ─────────────────────────────────────────────
-HORIZONS = [24, 48, 72]
-HORIZON_WEIGHTS = [0.3, 0.4, 0.3]
+HORIZONS = [24, 48]
+HORIZON_WEIGHTS = [0.3, 0.4]
 TARGETS = ['time_to_hit_hours', 'event']
 N_SPLITS = 5
 RANDOM_STATE = 42
-PENALIZER = 0.1          # L2 regularisation for Cox
+PENALIZER = 0.1         # L2 regularisation for Cox
 MAX_OBSERVED_TIME = 67   # max time in training data
 
 # Calibration method: 'platt' or 'isotonic'
@@ -30,7 +30,7 @@ CALIBRATION_METHOD = 'platt'
 def get_survival_probs(cph, df, horizons, max_observed):
     """
     Predict survival probabilities at each horizon.
-    Clips horizon to max_observed to avoid extrapolation,
+    Clips horizon to max_observed to avoid Breslow extrapolation,
     then returns P(event by horizon) = 1 - S(horizon).
     """
     probs = {}
@@ -43,14 +43,44 @@ def get_survival_probs(cph, df, horizons, max_observed):
     return probs  # dict: {24: array, 48: array, 72: array}
 
 
-def fit_calibrators(raw_probs_dict, true_events, method='platt'):
+def get_horizon_labels(df, horizon):
+    """
+    Returns mask and binary labels for calibration at a given horizon.
+
+    Fires censored BEFORE the horizon are excluded — their outcome is
+    unknown (we can't tell if they would have hit by the horizon).
+
+    Only two kinds of rows have a known outcome:
+      - event=1  AND time <= horizon  → definitely hit by horizon  (label=1)
+      - event=1  AND time >  horizon  → definitely missed horizon  (label=0)
+      - event=0  AND time >  horizon  → survived past horizon      (label=0)
+      - event=0  AND time <= horizon  → CENSORED before horizon    → EXCLUDED
+
+    Parameters
+    ----------
+    df      : pd.DataFrame with 'event' and 'time_to_hit_hours' columns
+    horizon : int, horizon in hours
+
+    Returns
+    -------
+    mask   : boolean array, True = row has known outcome at this horizon
+    labels : int array, 1 if hit by horizon else 0 (only valid where mask=True)
+    """
+    mask   = (df['event'] == 1) | (df['time_to_hit_hours'] > horizon)
+    labels = ((df['event'] == 1) & (df['time_to_hit_hours'] <= horizon)).astype(int)
+    return mask.values, labels.values
+
+
+def fit_calibrators(raw_probs_dict, df, method='platt'):
     """
     Fit one calibrator per horizon on OOF predictions.
+    Rows censored before the horizon are excluded from calibration fitting.
 
     Parameters
     ----------
     raw_probs_dict : dict {horizon: np.array of raw probabilities}
-    true_events    : np.array of binary event labels (1=hit, 0=censored/no hit)
+    df             : pd.DataFrame with 'event' and 'time_to_hit_hours' columns
+                     (must be the full OOF dataframe, same row order as raw_probs_dict)
     method         : 'platt' or 'isotonic'
 
     Returns
@@ -59,20 +89,35 @@ def fit_calibrators(raw_probs_dict, true_events, method='platt'):
     """
     calibrators = {}
     for h, probs in raw_probs_dict.items():
-        probs = probs.reshape(-1, 1)
+        mask, labels = get_horizon_labels(df, h)
+
+        # skip calibration if only one class present after masking
+        if len(np.unique(labels[mask])) < 2:
+            print(f"  Calibrator @{h}h: skipped — only one class after censoring mask")
+            calibrators[h] = None
+            continue
+
+        X_cal = probs[mask].reshape(-1, 1)
+        y_cal = labels[mask]
+
         if method == 'platt':
-            cal = LogisticRegression(C=1e10)  # effectively just sigmoid fitting
-            cal.fit(probs, true_events)
+            cal = LogisticRegression(C=1.0, random_state=42)
+            cal.fit(X_cal, y_cal)
         elif method == 'isotonic':
             cal = IsotonicRegression(out_of_bounds='clip')
-            cal.fit(probs.flatten(), true_events)
+            cal.fit(X_cal.flatten(), y_cal)
+
         calibrators[h] = cal
+        print(f"  Calibrator @{h}h: {mask.sum()} usable rows | "
+              f"{y_cal.sum()} hits | base rate {y_cal.mean():.3f}")
+
     return calibrators
 
 
 def apply_calibrators(calibrators, raw_probs_dict, method='platt'):
     """
     Apply fitted calibrators to raw probabilities.
+    Applied to ALL rows (no masking needed at prediction time).
 
     Returns
     -------
@@ -81,7 +126,10 @@ def apply_calibrators(calibrators, raw_probs_dict, method='platt'):
     calibrated = {}
     for h, cal in calibrators.items():
         probs = raw_probs_dict[h].reshape(-1, 1)
-        if method == 'platt':
+        if cal is None:
+            calibrated[h] = probs.flatten()
+            continue
+        elif method == 'platt':
             calibrated[h] = cal.predict_proba(probs)[:, 1]
         elif method == 'isotonic':
             calibrated[h] = cal.predict(probs.flatten())
@@ -158,7 +206,6 @@ def evaluate_features(feature_list, data, feature_name="Model", verbose=True):
 
     # Storage for OOF raw probabilities (before calibration)
     oof_raw = {h: np.zeros(len(data_subset)) for h in HORIZONS}
-    oof_events = np.zeros(len(data_subset))
 
     # ── Pass 1: collect OOF raw probabilities ──
     for fold, (train_idx, val_idx) in enumerate(skf.split(data_subset, events)):
@@ -172,10 +219,10 @@ def evaluate_features(feature_list, data, feature_name="Model", verbose=True):
 
         for h in HORIZONS:
             oof_raw[h][val_idx] = raw_probs[h]
-        oof_events[val_idx] = val_fold['event'].values
 
-    # ── Fit calibrators on full OOF predictions ──
-    calibrators = fit_calibrators(oof_raw, oof_events, method=CALIBRATION_METHOD)
+    # ── Fit calibrators on full OOF predictions (censoring-aware per horizon) ──
+    print("\nFitting calibrators on OOF predictions:")
+    calibrators = fit_calibrators(oof_raw, data_subset, method=CALIBRATION_METHOD)
 
     # ── Pass 2: evaluate with calibrated probabilities ──
     for fold, (train_idx, val_idx) in enumerate(skf.split(data_subset, events)):
@@ -260,7 +307,6 @@ def train_and_submit(feature_list, data, test_data, filename_suffix=""):
 
     # Collect OOF raw probs for calibration fitting
     oof_raw = {h: np.zeros(len(data_subset)) for h in HORIZONS}
-    oof_events = np.zeros(len(data_subset))
 
     for train_idx, val_idx in skf.split(data_subset, events):
         train_fold = data_subset.iloc[train_idx].copy()
@@ -272,9 +318,9 @@ def train_and_submit(feature_list, data, test_data, filename_suffix=""):
         raw_probs = get_survival_probs(cph, val_fold[feature_list], HORIZONS, MAX_OBSERVED_TIME)
         for h in HORIZONS:
             oof_raw[h][val_idx] = raw_probs[h]
-        oof_events[val_idx] = val_fold['event'].values
 
-    calibrators = fit_calibrators(oof_raw, oof_events, method=CALIBRATION_METHOD)
+    print("\nFitting calibrators on OOF predictions:")
+    calibrators = fit_calibrators(oof_raw, data_subset, method=CALIBRATION_METHOD)
 
     # Final model on full data
     cph_final = CoxPHFitter(penalizer=PENALIZER)
@@ -286,16 +332,19 @@ def train_and_submit(feature_list, data, test_data, filename_suffix=""):
     cal_test = apply_calibrators(calibrators, raw_test, method=CALIBRATION_METHOD)
 
     # Build submission
-    submission_horizons = [12, 24, 48, 72]
     predictions = {'event_id': test_data['event_id']}
 
     # 12h: not in calibration horizons, use raw Cox directly (no calibrator for this)
     raw_12h = get_survival_probs(cph_final, test_features, [12], MAX_OBSERVED_TIME)
     predictions['prob_12h'] = raw_12h[12]
 
-    for h in [24, 48, 72]:
+    for h in [24, 48]:
         predictions[f'prob_{h}h'] = cal_test[h]
         print(f"prob_{h}h — mean={cal_test[h].mean():.3f}  min={cal_test[h].min():.3f}  max={cal_test[h].max():.3f}")
+
+    # 72h: use calibrated 48h as proxy
+    predictions['prob_72h'] = cal_test[48]
+    print(f"prob_72h (proxy) — mean={cal_test[48].mean():.3f}  min={cal_test[48].min():.3f}  max={cal_test[48].max():.3f}")
 
     submission = pd.DataFrame(predictions)
     filename = f'test_submission{filename_suffix}.csv'
