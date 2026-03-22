@@ -1,6 +1,6 @@
 <img src="images/wildfire_banner.jpg">
 <h1>Fire Risk Predictor – Predicting Time-to-Threat for Evacuation Zones Using Survival Analysis</h1>
-<p><img src="https://img.shields.io/badge/Python-3.13-blue"> <img src="https://img.shields.io/badge/pandas-2.3-lightblue"><img src="https://img.shields.io/badge/lifelines-0.30-orange"> <img src="https://img.shields.io/badge/scikit--learn-1.7-orange">
+<p><img src="https://img.shields.io/badge/Python-3.13-blue"> <img src="https://img.shields.io/badge/pandas-2.3-lightblue"> <img src="https://img.shields.io/badge/lifelines-0.30-orange"> <img src="https://img.shields.io/badge/scikit--learn-1.7-orange">
 <img src="https://img.shields.io/badge/Dataset-WiDS_2026-red"></p>
 <h3>Context</h3>
 When a wildfire ignites, emergency responders face important questions with very little time to answer them:
@@ -49,6 +49,13 @@ The <b>Cox Proportional Hazards</b> model was used for the following reasons:
 </ul>
 <h3>Metrics For Measuring Performance</h3>
 The competition used a weighted combination of two metrics. The Concordance Index measures how well the model ranks wildfires by relative risk. The Brier Score measures probability calibration — when the model predicts a 70% threat probability, fires should actually threaten communities around 70% of the time. Together they ensure the model is both accurate in urgency rankings and trustworthy in its probability estimates.
+<h3>Results</h3>
+<ul>
+  <li>The best performing model achieved a score of 0.92571 on the competition leaderboard, indicating good relative ranking of wildfires and calibration of risk probabilities.</li>
+  <li>This means the model simultaneously ranks at-risk evacuation zones in the correct order the vast majority of the time, <b>and</b> produces well-calibrated survival probabilities.
+  <li>Thus, when the model claims that a zone has a 70% chance of remaining safe within 24 hours, that estimate is close to reality.</li>
+  <li>The heavy weighting on calibration (70% of the score) makes this the harder of the two components to optimise, and this particular part was addressed by the <b>Platt Scaling</b> probability calibration method, which together with the optimal set of features produced the best performing model yet.</li>
+</ul>
 <h3>Limitations</h3>
 <ul>
   <li>Due to the very small amount of training data provided (221 rows), overfitting was a significant problem. This issue made it difficult to choose more advanced machine learning models such as the Random Survival Forest.</li>
