@@ -1,18 +1,18 @@
 <h1>Fire Risk Predictor – Predicting Time-to-Threat for Evacuation Zones Using Survival Analysis</h1>
+![Python](https://img.shields.io/badge/Python-3.13-blue)
 <h3>Context</h3>
-When a wildfire ignites, emergency responders face important questions with unfavourable circumstances:
+When a wildfire ignites, emergency responders face important questions with very little time to answer them:
 <ul>
   <li>Which fires will reach populated areas?</li>
   <li>How quickly will those fires reach those areas?</li>
   <li>Which communities should prepare for the possibility of a wildfire reaching them first?</li>
 </ul>
+Existing forecasting approaches often reduce this problem to the simple question of "will this fire become dangerous?", ignoring information about when and relative to what other fires that emergency responders need in the event of a wildfire spread. Evacuation decisions in the real world are <b>time bound, comparative</b> and <b>made under uncertainty</b> about the progression of events. 
 <h3>Problem Task</h3>
-The task of this project is to build a survival model that answer these questions using only the earliest signals available. 
+This project builds a survival model that answers these questions using only the earliest signals available. 
 <ul style="font-size: 18px">
   <li>The model is to predict the probability that a wildfire will threaten an evacuation zone within 12, 24, 48, and 72 hours, drawing on data from just the first five hours after ignition.</li>
-  <li>Emergency responders need both urgency rankings (which fires demand immediate attention) and probability estimates they can trust when making high-stakes decisions about evacuations, resource deployment, and public alerts.</li>
-  <li>When a wildfire ignites, emergency managers and responders must decide which communities to warn, when to warn them, and where to position scarce resources.</li>
-  <li>Many wildfire forecasting approaches reduce the task to a single question. Will this fire become dangerous. Emergency response needs more information because <b>decisions are time-bound and comparative</b>.</li>
+  <li>These probabilities will provide emergency responders with the information to make decisions that prioritise the right evacuation zones, by knowing which fires are more likely to get within a dangerous proximity of a populated area and within how many hours they will do so.</li>
 </ul>
 <h3>Dataset: WiDS Global Datathon 2026</h3>
 <h4>Features</h4>
@@ -44,6 +44,25 @@ The <b>Cox Proportional Hazards</b> model was used for the following reasons:
 <ul>
   <li>Our best performing model utilised only <b>three</b> features from the dataset: <code>cross_track_component</code>, <code>num_perimeters_0_5h</code> and <code>dist_min_ci_0_5h</code>.</li>
   <li>An engineered feature using <code>num_perimeters_0_5h</code> and <code>dist_min_ci_0_5h</code> was used alongside <code>cross_track_component</code></li>
-  <li>The engineered feature was <code>log_ratio_epsilonp</code> expressed as:</li>
-  \[$\log(\epsilon + \frac{<code>num_perimeters_0_5h</code>}{<code>dist_min_ci_0_5h</code>})$\]
+</ul>
+<h3>Metrics For Measuring Performance</h3>
+The competition used a weighted combination of two metrics. The Concordance Index measures how well the model ranks wildfires by relative risk. The Brier Score measures probability calibration — when the model predicts a 70% threat probability, fires should actually threaten communities around 70% of the time. Together they ensure the model is both accurate in urgency rankings and trustworthy in its probability estimates.
+<h3>Limitations</h3>
+<ul>
+  <li>Due to the very small amount of training data provided (221 rows), overfitting was a significant problem. This issue made it difficult to choose more advanced machine learning models such as the Random Survival Forest.</li>
+  <li>This <b>sparsity</b> made it difficult to use more features in the Cox Proportional Hazards Model due to the <b>lack of meaningful information</b> from them.</li>
+  <li>Due to the very small time horizon spanned by the training data (5 hours), <b>most features were sparse</b>, containing over 75%+ of entries as 0 for most features.</li>
+  <li>Training data did not provide any data for observations around the 72 hour mark (the latest was 67 hours), which forced us to consider <b>extrapolating</b> probabilities and calibrations.</li>
+  <li>Training data was not significantly reflective of the nature of the testing data.</li>
+</ul>
+<h3>Possible improvements/additions</h3>
+<ul>
+  <li>Using data from other sources such as weather databases or other datasets in general can provide greater insight into how wildfires behave.</li>
+  <li>Having a larger dataset can greatly help a model reduce overfitting on a small training set, as was a common challenge during this project.</li>
+</ul>
+<h3>Conclusion</h3>
+<ul>
+  <li>This project demonstrates that meaningful wildfire threat predictions are achievable using only the first five hours of ignition data, as indicated by the optimal model's score of 0.92571.</li> 
+  <li>While the dataset is small and findings should be validated at greater scale, the results suggest survival analysis is a promising framework for time-sensitive emergency response problems.</li>
+  <li>With more data, more advanced survival analysis models that risk overfitting on smaller datasets, such as Random Survival Forests, can potentially provide more accurate predictions and risk rankings that give emergency responders more confidence in decision making.</li>
 </ul>
