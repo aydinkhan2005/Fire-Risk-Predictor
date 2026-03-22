@@ -1,5 +1,6 @@
+<img src="images/wildfire_banner.jpg">
 <h1>Fire Risk Predictor – Predicting Time-to-Threat for Evacuation Zones Using Survival Analysis</h1>
-<p><img src="https://img.shields.io/badge/Python-3.13-blue"> <img src="https://img.shields.io/badge/pandas-2.3-lightblue"<img src="https://img.shields.io/badge/lifelines-0.30-orange"> <img src="https://img.shields.io/badge/scikit--learn-1.7-orange">
+<p><img src="https://img.shields.io/badge/Python-3.13-blue"> <img src="https://img.shields.io/badge/pandas-2.3-lightblue"><img src="https://img.shields.io/badge/lifelines-0.30-orange"> <img src="https://img.shields.io/badge/scikit--learn-1.7-orange">
 <img src="https://img.shields.io/badge/Dataset-WiDS_2026-red"></p>
 <h3>Context</h3>
 When a wildfire ignites, emergency responders face important questions with very little time to answer them:
